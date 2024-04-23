@@ -8,6 +8,7 @@ def generate_random_mac():
     mac[0] &= 0xfe  # Ensure the MAC address is unicast (first octet has to be even)
     return ':'.join(map(lambda x: format(x, '02x'), mac))  # Format bytes as hexadecimal and join with colons
 
+
 class Device:
     def __init__(self, name, port_number):
         self.name = name
@@ -41,10 +42,6 @@ class Switch(Device):
         super().__init__(name, port_number)
         self.mac_table = {} # i.e {1 : "00-B0-D0-63-C2-26"}
 
-    def handshake(self, port):
-        """Handshakes with the given port - i.e asks that device for it's mac address."""
-        # Send a packet to a device and ask it to send something back.
-
     def update_mac_table(self, packet, outbound_port):
         """Updates the mac learning table if required with device MAC and port"""
         sender_mac = packet.header['sender_mac']
@@ -55,27 +52,30 @@ class Switch(Device):
 
     def get_destination_port(self, packet):
         """Returns destination port if the destination mac is in the learning table. Otherwise returns None"""
-        receiver_mac = packet.header['receiver_mac']
+        destination_mac = packet.header['destination_mac']
         for port, mac in self.mac_table.items():
-            if receiver_mac == mac:
+            if destination_mac == mac:
                 return port
         return None
 
-    # NOTE: Maybe change this to 'route_packet' and keep the 'send_packet' function.
-    # def send_packet(self, packet, port_number):
-    #     """Send the given packet through the specified port on this device"""
-    #     self.handle_outbound_packet(packet, port_number)
-    #     receiver_port = self.get_destination_port(packet)
-        
-    #     # Send the packet
-    #     if receiver_port:
-    #         self.get_port(receiver_port).send_packet(packet)
-    #     else:
-    #         # Flood all ports looking for the destination mac.
-    #         ...
+    def receive_packet(self, received_packet, sender_port):
+        packet, port = super().receive_packet(received_packet, sender_port)
+        self.update_mac_table(packet, port)
+        print(f'{self.name} : packet {received_packet} received')
+        self.send_packet(packet, sender_port)
 
-    def route_packet(self, packet):
-        ...
+
+    def send_packet(self, packet, sender_port):
+        destination_port = self.get_destination_port(packet)
+        # If we found the destination mac, send it there
+        if destination_port:
+            super().send_packet(packet, destination_port)
+        # Otherwise, send it to all open ports.
+        else:
+            for port in self.ports:
+                # Don't send it down the port it came from
+                if port != sender_port and port.is_open():
+                    super().send_packet(packet, port)
 
 
 class Node(Device):
